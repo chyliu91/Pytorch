@@ -661,6 +661,254 @@ torch.Size([4, 3])
 
 
 ## 增删维度
+增加维度 增加一个长度为 1 的维度相当于给原有的数据添加一个新维度的概念，维度长度为 1，存储并不需要改变，仅仅是改变数据的理解方式，因此它其实可以理解为改变视图的一种特殊方式。
+
+通过 `torch.unsqueeze(x, dim)` 可以用于增加维度:
+- dim 为非负时，表示在当前维度之前插入一个新维度
+- dim 为负时，表示当前维度之后插入一个新的维度
+
+```
+x = torch.randint(0, 10, [28, 28])
+print(x.shape)
+x = torch.unsqueeze(x, dim=0)
+print(x.shape)
+x = torch.unsqueeze(x, dim=2)
+print(x.shape)
+x = torch.unsqueeze(x, dim=-1)
+print(x.shape)
+```
+输出:
+```
+torch.Size([28, 28])
+torch.Size([1, 28, 28])
+torch.Size([1, 28, 1, 28])
+torch.Size([1, 28, 1, 28, 1])
+```
+
+删除维度是增加维度的逆操作，与增加维度一样，删除维度只能删除长度为 1 的维度，也不会改变张量的存储。可以通过 `torch.squeeze(x, dim)` 函数来实现:
+```
+x = torch.randint(0, 10, [1, 28, 1, 28, 1, 1])
+print(x.shape)
+x = torch.squeeze(x,dim=0)
+print(x.shape)
+x = torch.squeeze(x, dim=-1)
+print(x.shape)
+x = torch.squeeze(x)
+print(x.shape)
+```
+输出:
+```
+torch.Size([1, 28, 1, 28, 1, 1])
+torch.Size([28, 1, 28, 1, 1])
+torch.Size([28, 1, 28, 1])
+torch.Size([28, 28])
+```
+特别地，如果不指定维度参数 `dim`，即 `torch.squeeze(x)`，那么它会默认删除所有长度为 1 的维度。
+
+## 复制数据
+可以通过 `repeat(repeats)` 函数完成数据在各个维度上的复制操作，参数 `repeats` 分别指定了每个维度上的复制倍数，对应位置为 1 表明不复制，为 2 表明新长度为原来长度的 2 倍，即数据复制一份，以此类推。
+
+```
+a = torch.arange(24).reshape([2, 3, 4])
+print(a.shape)
+a = a.repeat([1, 3, 2])
+print(a.shape)
+```
+输出:
+```
+torch.Size([2, 3, 4])
+torch.Size([2, 9, 8])
+```
+
+需要注意的是，`repeat()` 函数会创建一个新的内存区来保存复制后的张量，由于复制操作涉及大量数据的读写 IO 运算，计算代价相对较高，因此数据复制操作较为昂贵。
+
+
+## Broadcasting 机制
+Broadcasting 称为广播机制(或自动扩展机制)，它是一种轻量级的张量复制手段，在逻辑上扩展张量数据的形状，但是只会在需要时才会执行实际存储复制操作。对于大部分场景，Broadcasting 机制都能通过优化手段避免实际复制数据而完成逻辑运算，从而相对于上一节的 repeat 函数，减少了大量计算代价，但是计算逻辑完全一样。
+
+对于所有长度为 1 的维度，Broadcasting 的效果和 repeat 函数一样，都能在此维度上逻辑复制数据若干份，区别在于 repeat 函数会创建一片新的内存空间，执行 IO 复制操作，并保存复制后的张量数据，而 Broadcasting 机制并不会立即复制数据，它会在逻辑上改变张量的形状，使得视图上变成了复制后的形状，从而可以继续进行下一步运算。Broadcasting 机制会通过深度学习框架的优化手段避免实际复制数据而完成逻辑运算，至于怎么实现的用户不必关心。
+
+```
+a = torch.randn([2,3,3,4])
+b = torch.randn([3,1])
+c = a + b # 维度不同的数据仍然合法计算
+print(c.shape)
+```
+输出:
+```
+torch.Size([2, 3, 3, 4])
+```
+
+上面的计算维度不同的张量之间计算是合法的就是利用了广播机制，Broadcasting 机制的核心思想是普适性，即同一份数据能普遍适合于其他维度。在验证
+普适性之前，需要先将张量 shape 靠右对齐，然后进行普适性判断：
+- 对于长度为 1 的维度，默认这个数据普遍适合于当前维度的其他位置
+- 对于不存在的维度，则在增加新维度后默认当前数据也是普适于新维度的，从而可以扩展为更多维度数、任意长度的张量形状
+
+![](./imgs/broadcasting.png)
+
+广播机制的变换过程可以表示为:
+
+![](./imgs/broadcasting2.png)
+
+相对于昂贵的 `repeat` 操作来说，`expand` 操作几乎是零消耗的，甚至用户都不需要显式调用 `expand` 操作:
+```
+a = torch.arange(32).view(32, 1)
+# 扩展为 4D 张量
+a = a.expand(2,32,32,3)
+print(a.shape)
+```
+在进行张量运算时，有些运算在处理不同 `shape` 的张量时，会隐式地自动触发 Broadcasting 机制，如 `+、-、*、/` 等运算符等。
+
+
+# 数学运算
+## 加、减、乘、除运算
+加、减、乘、除是最基本的数学运算，分别通过 `torch.add、torch.sub、torch.mul、torch.div` 函数实现，PyTorch 已经重载了 `+、 − 、 ∗ 、/` 运算符。
+
+整除和余除也是常见的数学运算之一，分别通过 `//` 和 `%` 运算符实现。
+
+```
+a = torch.arange(5)
+b = torch.tensor(2)
+print(a)
+print(a + b)
+print(a - b)
+print(a * b)
+print(a / b)
+print(a // b)
+print(a % b)
+```
+输出:
+```
+tensor([0, 1, 2, 3, 4])
+tensor([2, 3, 4, 5, 6])
+tensor([-2, -1,  0,  1,  2])
+tensor([0, 2, 4, 6, 8])
+tensor([0.0000, 0.5000, 1.0000, 1.5000, 2.0000])
+tensor([0, 0, 1, 1, 2])
+tensor([0, 1, 0, 1, 0])
+```
+
+## 乘方运算
+通过 `torch.pow(x, a)` 可以方便地完成 $x^a$ 乘方计算，也可以通过运算符 `**` 完成乘方计算:
+```
+x = torch.arange(4)
+print(torch.pow(x, 2))
+print(x**3)
+```
+输出:
+```
+tensor([0, 1, 4, 9])
+tensor([ 0,  1,  8, 27])
+```
+
+设置指数为 $\frac{1}{a}$ 可以用于 $\sqrt[a]{x} $ 计算:
+```
+x = torch.arange(4) ** 3
+x = x ** (1/3)
+print(x)
+```
+输出:
+```
+tensor([0., 1., 2., 3.])
+```
+
+特别地，对于常见的平方和平方根运算，可以使用 `square()` 和 `sqrt()` 实现:
+```
+x = torch.arange(4)
+x = torch.square(x)
+print(x)
+x = torch.sqrt(x)
+print(x)
+```
+输出:
+```
+tensor([0, 1, 4, 9])
+tensor([0., 1., 2., 3.])
+```
+
+## 指数和对数运算
+通过 `torch.pow(a, x)` 或者 `**` 运算符也可以方便地实现指数运算 $a^{x}$:
+```
+x = torch.arange(5)
+print(2 ** x)
+```
+输出:
+```
+tensor([ 1,  2,  4,  8, 16])
+```
+
+特别地，对于自然指数 $e^{x}$ 可以通过 `exp()` 函数实现:
+```
+x = torch.arange(5)
+print(torch.exp(x))
+```
+输出:
+```
+tensor([ 1.0000,  2.7183,  7.3891, 20.0855, 54.5981])
+```
+
+对数运算，例如常见的: $\log_{e}{x}$，$\log_{2}{x}$，$\log_{10}{x}$ 等，可以直接调用 `torch.log()、torch.log2()、torch.log10()` 等函数实现:
+```
+x = torch.arange(1,5)
+print(torch.log(x))
+print(torch.log2(x))
+print(torch.log10(x))
+```
+输出:
+```
+tensor([0.0000, 0.6931, 1.0986, 1.3863])
+tensor([0.0000, 1.0000, 1.5850, 2.0000])
+tensor([0.0000, 0.3010, 0.4771, 0.6021])
+```
+
+如果希望计算其它底数的对数，可以根据对数的换底公式：
+$$
+\log_{a}{x}= \frac{\log_{e}{x}}{\log_{e}{a}} 
+$$
+进行计算:
+```
+x = torch.arange(1,5)
+print(torch.log(torch.tensor(100))/torch.log(torch.tensor(10)))
+```
+输出:
+```
+tensor(2.)
+```
+
+## 矩阵相乘运算
+通过 `@` 运算符可以方便地实现矩阵相乘，还可以通过 `torch.matmul(a, b)` 函数实现。
+
+需要注意的是，PyTorch 中的矩阵相乘可以使用批量方式，也就是张量 𝑨 和 𝑩 的维度数可以大于 2。当张量 𝑨 和 𝑩 维度数大于 2 时，PyTorch 会默认选择  𝑨和 𝑩 的最后两个维度进行矩阵相乘，前面所有的维度都视作 Batch 维度。
+
+根据矩阵相乘的定义，矩阵 𝑨 和 𝑩 能够完成矩阵相乘的条件是，𝑨 的倒数第一个维度长度(列)和 𝑩 的倒数第二个维度长度(行)必须相等。
+
+```
+a = torch.randn([2, 3, 32, 28])
+b = torch.randn([2, 3, 28, 64])
+c = a @ b
+print(c.shape)
+```
+输出:
+```
+torch.Size([2, 3, 32, 64])
+```
+
+矩阵相乘函数同样支持自动 Broadcasting 机制，例如:
+```
+a = torch.randn(4, 28, 32)
+b = torch.randn(32,16)
+c = a @ b
+print(c.shape)
+```
+输出:
+```
+torch.Size([4, 28, 16])
+```
+
+## 合并与分割
+### 分割
+
+
 
 
 
