@@ -6,10 +6,6 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-
-import sphinx_rtd_theme
-
-
 project = 'Pytorch'
 copyright = '2024, Chay'
 author = 'Chay'
