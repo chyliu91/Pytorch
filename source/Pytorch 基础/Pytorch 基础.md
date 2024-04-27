@@ -1471,5 +1471,235 @@ tensor([[[0., 0., 0., 0.],
          [4., 4., 4., 4.]]])
 ```
 
+# 自动求导
+为了区分需要计算梯度信息的张量与不需要计算梯度信息的张量，PyTorch 给每个张量添加了 `requires_grad` 属性，在创建张量时可以通过`torch.tensor(value, requires_grad=False)` 指定是否需要计算梯度，上述创建的所有张量均使用默认参数 `requires_grad=False`。
+
+- 由于梯度运算会消耗大量的计算资源，而且会自动更新相关参数，对于不需要的优化的张量，如神经网络的输入 𝑿，设置 `requires_grad=False` 即可
+- 对于需要计算梯度并优化的张量，如神经网络层的 𝑾 和 𝒃，必须设置 `requires_grad=True`，以便 PyTorch 跟踪相关梯度信息
+
+```
+w = torch.tensor(2., requires_grad=True)
+print(w)
+```
+输出:
+```
+tensor(2., requires_grad=True)
+```
+
+PyTorch 的自动梯度功能只允许对待优化张量进行梯度计算，例如:
+```
+from torch import autograd
+
+x = torch.tensor(1., requires_grad=False)
+w = torch.tensor(2., requires_grad=True)
+b = torch.tensor(3., requires_grad=True)
+
+y = x * w + b
+dy_dw, dy_db = autograd.grad(y, [w, b])
+print(dy_dw)
+print(dy_db)
+```
+输出:
+```
+tensor(1.)
+tensor(1.)
+```
+
+如果没有设置 `requires_grad` 参数，则会产生错误:
+```
+dy_dx = autograd.grad(y, [x])
+```
+输出:
+```
+RuntimeError: One of the differentiated Tensors does not require grad
+```
+
+## 计算图
+计算图是一种有向无环图像，用图形方式来表示算子与变量之间的关系。
+
+![](./imgs/compute_graph.png)
+
+计算表达式:
+$$
+z=wx+b
+$$
+
+可以拆解为:
+$$
+y=wx
+$$
+$$
+z=y+b
+$$
+
+其中 `x、w、b` 为变量，是用户创建的变量，不依赖于其他变量，故又称为叶子节点。
+
+为计算各叶子节点的梯度，需要把对应的张量参数 `requires_grad` 属性设置为 True，这样就可自动跟踪其历史记录。`y、z` 是计算得到的变量，非叶子节点，`z` 为根节点。
+
+`mul` 和 `add` 是算子（或操作或函数）。由这些变量及算子，就构成一个完整的计算过程（或前向传播过程）。
+
+根据复合函数导数的链式法则:
+$$
+\frac{\partial z}{\partial w} =\frac{\partial z}{\partial y} \frac{\partial y}{\partial w} =x
+$$
+
+$$
+\frac{\partial z}{\partial b} = 1
+$$
+
+PyTorch调用backward()方法，将自动计算各节点的梯度，这是一个反向传播过程，这个过程可用下图表示:
+
+![](./imgs/backward.png)
+
+在反向传播过程中，`autograd` 沿着上图的计算方式，从当前根节点 `z`反向溯源，利用导数链式法则，计算所有叶子节点的梯度，其梯度值将累加到 `grad` 属性中。
+
+非叶子节点的计算操作记录在 `grad_fn` 属性中，叶子节点的 `grad_fn` 值为 `None`。
+
+```
+import torch
+
+x = torch.tensor([2])
+w = torch.randn(1, requires_grad=True)
+b = torch.randn(1, requires_grad=True)
+
+# 前向传播
+y = torch.mul(w, x)
+z = torch.add(y, b)
+
+# 查看张量是否是叶子节点
+print(f"w.is_leaf: {w.is_leaf}, b.is_leaf: {b.is_leaf}, x.is_leaf: {x.is_leaf}, y.is_leaf: {y.is_leaf}, z.is_leaf: {z.is_leaf}")
+
+# 查看叶子节点的 requires_grad 属性 
+print(f"w.requires_grad: {w.requires_grad}, b.requires_grad: {b.requires_grad}, x.requires_grad: {x.requires_grad}")
+
+# 查看非叶子节点的 requires_grad 属性 
+print(f"y.requires_grad: {y.requires_grad}, z.requires_grad: {z.requires_grad}")
+
+# 查看叶子节点的 grad_fn 属性 
+print(f"w.grad_fn: {w.grad_fn}, b.grad_fn: {b.grad_fn}, x.grad_fn: {x.grad_fn}")
+
+# 查看非叶子节点的 grad_fn 属性 
+print(f"y.grad_fn: {y.grad_fn}, z.grad_fn: {z.grad_fn}")
+```
+输出:
+```
+w.is_leaf: True, b.is_leaf: True, x.is_leaf: True, y.is_leaf: False, z.is_leaf: False
+w.requires_grad: True, b.requires_grad: True, x.requires_grad: False
+y.requires_grad: True, z.requires_grad: True
+w.grad_fn: None, b.grad_fn: None, x.grad_fn: None
+y.grad_fn: <MulBackward0 object at 0x7f1afd17b610>, z.grad_fn: <AddBackward0 object at 0x7f1afd17b610>
+```
+
+自动求导，反向传播:
+```
+z.backward()
+
+# 查看叶子节点的 requires_grad 属性 
+print(f"w.grad: {w.grad}, b.grad: {b.grad}, x.grad: {x.grad}")
+
+# 查看非叶子节点的 grad_fn 属性 
+print(f"y.grad: {y.grad}, z.grad: {z.grad}")
+```
+输出:
+```
+w.grad: tensor([2.]), b.grad: tensor([1.]), x.grad: None
+y.grad: None, z.grad: None
+```
+
+如果需要多次使用 `backward`，需要修改参数 `retain_graph` 为 `True`，此时梯度是累加的。例如，设置 `retain_graph=True` 后连续调用两次:
+```
+# 自动求导，反向传播
+z.backward(retain_graph=True)
+
+# 查看叶子节点的 requires_grad 属性 
+print(f"w.grad: {w.grad}, b.grad: {b.grad}, x.grad: {x.grad}")
+
+# 查看非叶子节点的 grad_fn 属性 
+print(f"y.grad: {y.grad}, z.grad: {z.grad}")
+```
+输出:
+```
+w.grad: tensor([4.]), b.grad: tensor([2.]), x.grad: None
+y.grad: None, z.grad: None
+```
+
+## 非标量反向传播
+目标张量为标量时，可以调用 `backward()` 方法且无须传入参数。
+
+目标张量一般都是标量，如我们经常使用的损失值 `Loss`，一般都是一个标量。但也有非标量的情况，PyTorch 有个简单的规定，不让张量对张量求导，只允许标量对张量求导，因此，如果目标张量对一个非标量调用 `backward()`，则需要传入一个 `gradient` 参数，该参数也是张量，而且需要与调用`backward()` 的张量形状相同。传入这个参数就是为了把张量对张量的求导转换为标量对张量的求导。
+
+
+假设目标值为 $loss=(y_1,y_2,…,y_m)$，传入的参数为 $v=(v_1,v_2,…,v_m)$，那么就可把对 $loss$ 的求导，转换为对 $loss*v^T$ 标量的求导。即把原来 $\frac{\partial loss}{\partial x}$ 得到的雅可比矩阵乘以张量 $v^T$，便可得到我们需要的梯度矩阵。
+
+假设 $x=(x_1=2,x_2=3)$，则 $y=(y_1=x_1^2+3x_2,y_2=x_2^2+2x_1)$，不难得到:
+
+![](./imgs/Jacobian.png)
+
+当 $x_1=2,x_2=3$ 时:
+
+![](./imgs/Jacobian2.png)
+
+所以:
+
+![](./imgs/Jacobian3.png)
+
+调用 `backward` 来获取 `y` 对 `x` 的梯度:
+```
+```
+
+## 自动求导要点
+
+
+
+为实现对 Tensor 自动求导，需考虑如下事项:
+
+- 创建叶子节点的 Tensor，使用 `requires_grad` 参数指定是否记录对其操作，以便之后利用 `backward()` 方法进行梯度求解。`requires_grad` 参数的缺省值为 `False`，如果要对其求导需设置为 `True`，然后与之有依赖关系的节点会自动变为 `True`
+```
+x = torch.tensor([1.0, 2.0], requires_grad=True)
+y = x ** 2
+print(y.requires_grad)
+```
+
+- 可利用 `requires_grad_()` 方法修改 Tensor 的 `requires_grad` 属性。可以调用 `.detach()` 或 `with torch.no_grad()：`，将不再计算张量的梯度，跟踪张量的历史记录。这点在评估模型、测试模型阶段中常常用到
+
+```
+w.requires_grad_(False)
+print(w)
+```
+输出:
+```
+tensor(2.)
+```
+
+```
+x = torch.tensor([1.0, 2.0], requires_grad=True)
+x = x.detach()
+print(x.requires_grad)
+```
+输出:
+```
+False
+```
+
+- 通过运算创建的 Tensor（即非叶子节点），会自动被赋予 `grad_fn` 属性。该属性表示梯度函数。叶子节点的 `grad_fn` 为 `None`
+```
+x = torch.tensor([1.0, 2.0], requires_grad=True)
+y = x ** 2
+print(y)
+print(y.grad_fn)
+print(x.grad_fn)
+```
+输出:
+```
+tensor([1., 4.], grad_fn=<PowBackward0>)
+<PowBackward0 object at 0x7f1b88629310>
+None
+```
+
+- 最后得到的 Tensor 执行 `backward()` 函数，此时自动计算各变量的梯度，并将累加结果保存到 `grad` 属性中。计算完成后，非叶子节点的梯度自动释放
+```
+
+```
+
 
 
