@@ -907,9 +907,132 @@ torch.Size([4, 28, 16])
 
 ## 合并与分割
 ### 合并
+张量的合并可以使用拼接(Concatenate)和堆叠(Stack)操作实现
+- 拼接操作并不会产生新的维度，仅在现有的维度上合并
+- 堆叠会创建新维度并合并数据
 
+拼接 在 PyTorch 中，可以通过 `torch.cat(tensors, dim)` 函数拼接张量，其中参数 tensors 保存了所有需要合并的张量 `List，dim` 参数指定需要合并的维度索引。
+```
+a = torch.randn([2,3,9])
+b = torch.randn([2,3,8])
+c = torch.cat([a,b], dim=2)
+print(c.shape)
+```
+输出:
+```
+torch.Size([2, 3, 17])
+```
+从语法上来说，拼接合并操作可以在任意的维度上进行，唯一的约束是所有非合并维度的长度必须一致。
+
+```
+a = torch.randn([4,32,8])
+b = torch.randn([6,35,8])
+torch.cat([a,b], dim=0) 
+```
+输出:
+```
+RuntimeError: Sizes of tensors must match except in dimension 0. Expected size 32 but got size 35 for tensor number 1 in the list.
+```
+
+拼接操作直接在现有维度上合并数据，并不会创建新的维度。如果在合并数据时，希望创建一个新的维度，则需要使用堆叠操作。
+
+使用 `torch.stack(tensors, dim)` 可以以堆叠方式合并多个张量，通过 tensors 列表表示，参数 `dim` 指定新维度插入的位置，`dim` 的用法与 `torch.unsqueeze` 函数的一致，当 `dim ≥ 0` 时，在 `dim` 之前插入；当 `dim < 0` 时，在 `dim` 之后插入新维度：
+```
+a = torch.randn([4, 3])
+b = torch.randn([4,3])
+c= torch.stack([a,b])
+print(c.shape)
+c= torch.stack([a,b],dim=1)
+print(c.shape)
+c= torch.stack([a,b],dim=-1)
+print(c.shape)
+```
+输出:
+```
+torch.Size([2, 4, 3])
+torch.Size([4, 2, 3])
+torch.Size([4, 3, 2])
+```
+Stack 操作也需要满足张量堆叠合并的条件，它需要所有待合并的张量 shape 完全一致才可合并。张量 shape 不一致时进行堆叠合并发生的错误:
+```
+a = torch.randn([35,4])
+b = torch.randn([35,8])
+torch.stack([a,b], dim=-1)
+```
+输出:
+```
+RuntimeError: stack expects each tensor to be equal size, but got [35, 4] at entry 0 and [35, 8] at entry 1
+```
 
 ### 分割
+合并操作的逆过程就是分割，即将一个张量拆分为多个张量。
+
+通过 `torch.split(x, split_size_or_sections, dim)` 可以完成张量的分割操作，参数意义定义如下:
+- `x`: 待分割张量
+- `split_size_or_sections`: 切割方案。当 `split_size_or_sections` 为单个数值时，表示每份的长度，当 `split_size_or_sections` 为 List 时，List 的每个元素表示每份的长度
+- `dim`：指定待分割的维度索引号
+```
+x = torch.randn([10, 35, 8])
+
+a = torch.split(x, 2, dim=0)
+print(len(a))
+print(a[0].shape)
+
+a = torch.split(x, 3, dim=0)
+print(len(a))
+print(a[-1].shape)
+
+a = torch.split(x, [2, 3, 3], dim=2)
+print(len(a))
+print(a[0].shape)
+```
+输出:
+```
+5
+torch.Size([2, 35, 8])
+4
+torch.Size([1, 35, 8])
+3
+torch.Size([10, 35, 2])
+```
+
+除了 `split` 函数可以实现张量分割外，PyTorch 还提供了另一个函数 `torch.chunk(x,chunks,dim)`。他的用法与 `torch.split` 非常类似，区别在于 `chunk` 函数的参数 `chunks` 指定了切割份数，而 `split` 函数的参数 `split_size_or_sections` 则是每份长度。
+
+```
+x = torch.randn([10, 35, 8])
+
+a = torch.chunk(x, 5, dim=0)
+print(len(a))
+print(a[-1].shape)
+
+a = torch.chunk(x, 3, dim=-1)
+print(len(a))
+print(a[-1].shape)
+```
+输出:
+```
+5
+torch.Size([2, 35, 8])
+3
+torch.Size([10, 35, 2])
+```
+
+此外，`torch.unbind(x, dim)` 函数也具有分割张量的功能，它沿着 `dim` 维度将张量切分为长度为 1 每份。
+```
+```
+输出:
+```
+x = torch.randn([10, 35, 8])
+
+a = torch.unbind(x, dim=0)
+print(len(a))
+print(a[0].shape)
+```
+输出:
+```
+10
+torch.Size([35, 8])
+```
 
 ## 数据统计
 
