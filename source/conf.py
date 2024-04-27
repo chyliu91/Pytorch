@@ -6,7 +6,7 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-from recommonmark.parser import CommonMarkParser
+
 import sphinx_rtd_theme
 
 
@@ -31,8 +31,6 @@ language = 'zh_CN'
 html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
 
-source_parsers = {
-  '.md': CommonMarkParser,
-}
+
 source_suffix = ['.rst', '.md']
-extensions = ['recommonmark','sphinx_markdown_tables'] 
+extensions = ['sphinx_markdown_tables'] 
