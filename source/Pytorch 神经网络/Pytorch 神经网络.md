@@ -78,5 +78,60 @@ optimizer.step()
 ```
 
 # Pytorch 神经网络实战
+## 准备 mnist 数据集
 
+下载 mnist 数据集:
+```
+%matplotlib inline
+import numpy as np
+import matplotlib.pyplot as plt
+import torch
+import torch.nn.functional as F
+from torch import nn
+import torch.optim as optim
+from torch.utils.data import DataLoader
+from torchvision import transforms
+from torchvision.datasets import mnist
 
+transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize([0.5] ,[0.5])])
+train_dataset = mnist.MNIST('./data', train=True, transform=transform, download=True)
+test_dataset = mnist.MNIST('./data', train=False, transform=transform, download=True)
+
+train_loader = DataLoader(train_dataset, batch_size=256, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=256, shuffle=False)
+```
+
+可视化:
+```
+examples = enumerate(test_loader)
+bacth_idx, (example_data, example_targets) = next(examples)
+
+fig = plt.figure()
+for i in range(6):
+    plt.subplot(2, 3, i+1)
+    plt.tight_layout()
+    plt.imshow(example_data[i][0], cmap='gray', interpolation='none')
+    plt.title(f'Ground Truth: {example_targets[i]}')
+    plt.xticks([])
+    plt.yticks([])
+```
+输出:
+
+![](./imgs/mnist.png)
+
+## 构建模型
+
+```
+class Net(nn.Module):
+    def __init__(self, in_dim, n_hidden_1, n_hidden_2, out_dim):
+        super(Net, self).__init__()
+        self.layer1 = nn.Sequential(nn.Linear(in_dim, n_hidden_1), nn.BtchNorm1d(n_hidden_1))
+        self.layer2 = nn.Sequential(nn.Linear(n_hidden_1, n_hidden_2), nn.BatchNorm1d(n_hidden_2))
+        self.layer3 = nn.Sequential(nn.Linear(n_hidden_2, out_dim))
+
+    def forward(self, x):
+        x = F.rule(self.layer1(x))
+        x = F.rule(self.layer2(x))
+        x = self.layer3(x)
+        return x
+```
